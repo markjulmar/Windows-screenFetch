@@ -10,8 +10,7 @@ Function Get-SystemSpecifications()
     $Motherboard = Get-Mobo;
     $Shell = Get-Shell;
     $Resolution = Get-Resolution;
-    $WM = Get-WM;
-    $Font = Get-Font;
+    $NetworkInfo = Get-NetworkInfo;
     $CPU = Get-CPU;
     $GPU = Get-GPU;
     $RAM = Get-RAM;
@@ -19,22 +18,21 @@ Function Get-SystemSpecifications()
 
 
     [System.Collections.ArrayList] $SystemInfoCollection = 
-        $UserInfo, 
-        $OS, 
-        $Kernel,
-        $Uptime,
-        $Motherboard,
-        $Shell,
-        $Resolution,
-        $WM,
-        $Font,
-        $CPU,
-        $GPU,
-        $RAM;
+        $UserInfo.ToString(), 
+        $OS.ToString(), 
+        $Kernel.ToString(),
+        $Uptime.ToString(),
+        $Motherboard.ToString(),
+        $Shell.ToString(),
+        $Resolution.ToString(),
+        $NetworkInfo.ToString(),
+        $CPU.ToString(),
+        $GPU.ToString(),
+        $RAM.ToString();
 
     foreach ($Disk in $Disks)
     {
-        [void]$SystemInfoCollection.Add($Disk);
+        [void]$SystemInfoCollection.Add($Disk.ToString());
     }
     
     return $SystemInfoCollection;
@@ -45,16 +43,15 @@ Function Get-LineToTitleMappings()
     $TitleMappings = @{
         0 = "";
         1 = "OS: "; 
-        2 = "Kernel Version: ";
+        2 = "Kernel: ";
         3 = "Uptime: ";
         4 = "Motherboard: ";
         5 = "Shell: ";
         6 = "Resolution: ";
-        7 = "Window Manager: ";
-        8 = "Font: ";
-        9 = "CPU: ";
-        10 = "GPU ";
-        11 = "RAM: ";
+        7 = "Network: ";
+        8 = "CPU: ";
+        9 = "GPU: ";
+        10 = "RAM: ";
     };
 
     return $TitleMappings;
@@ -62,12 +59,14 @@ Function Get-LineToTitleMappings()
 
 Function Get-UserInformation()
 {
-    return (Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object UserName).UserName.Split('\')[1];
+    return [System.Environment]::UserName + "@" + [System.Environment]::MachineName;
+    #return (Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object UserName).UserName.Split('\')[1];
 }
 
 Function Get-OS()
 {
-    return (Get-CimInstance -Class CIM_OperatingSystem).Caption + ", " + (Get-CimInstance -Class CIM_OperatingSystem).OSArchitecture;
+    $servicePack = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name DisplayVersion | Select-Object -ExpandProperty DisplayVersion;
+    return (Get-CimInstance -Class CIM_OperatingSystem).Caption + " " + $servicePack + ", " + (Get-CimInstance -Class CIM_OperatingSystem).OSArchitecture;
 }
 
 Function Get-Kernel()
@@ -77,10 +76,32 @@ Function Get-Kernel()
 
 Function Get-FormattedUptime()
 {
-    $Uptime = Get-Uptime
+    return (Get-CimInstance -ClassName CIM_OperatingSystem).LastBootUpTime -replace '\\r?\\n', '';
+}
 
-    $FormattedUptime =  $Uptime.Days.ToString() + "d " + $Uptime.Hours.ToString() + "h " + $Uptime.Minutes.ToString() + "m " + $Uptime.Seconds.ToString() + "s ";
-    return $FormattedUptime;
+Function Get-NetworkInfo()
+{
+    $adapters = Get-CimInstance Win32_NetworkAdapterConfiguration | 
+    Where-Object IPAddress | 
+    ForEach-Object {
+        $adapter = Get-CimInstance Win32_NetworkAdapter | Where-Object { $_.DeviceID -eq $_.Index } | Select-Object -First 1
+        $type = Switch ($adapter.AdapterType) {
+            "Ethernet 802.3" { "Ethernet" }
+            "Wireless LAN" { "Wi-Fi" }
+            default {
+                if ($adapter.NetConnectionID -match "VPN") { "VPN" } else { "Other" }
+            }
+        }
+
+        [PSCustomObject]@{
+            Type        = $type
+            Description = $_.Description
+            IPv4Address = ($_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$')[0]
+        }
+    }
+
+    return $adapters[0].Type + ": " + $adapters[0].IPv4Address
+
 }
 
 Function Get-Mobo()
@@ -96,23 +117,9 @@ Function Get-Shell()
 }
 
 Function Get-Resolution()
-{ 
-    $Horizontal = Out-String -InputObject (Get-CimInstance Win32_VideoController).CurrentHorizontalResolution -NoNewline;
-    $Vertical = Out-String -InputObject (Get-CimInstance Win32_VideoController).CurrentVerticalResolution -NoNewline;
-    return $Horizontal + " x " + $Vertical;
-}
-
-
-
-Function Get-WM() 
 {
-    return "DWM";
-}
-
-# THIS USUALLY WILL OUTPUT INCORRECT RESULTS. STATICALLY SETTING THIS VALUE IS NO BUENO. NEED TO REMOVE BUT WANT TO GET THIS RELEASED FIRST.
-Function Get-Font() 
-{
-    return "Segoe UI";
+    $VideoInfo = Get-CimInstance Win32_VideoController | Where-Object CurrentHorizontalResolution -ge 800 | Select-Object Name, CurrentHorizontalResolution, CurrentVerticalResolution;
+    return $VideoInfo[0].CurrentHorizontalResolution.ToString() + "x" + $VideoInfo[0].CurrentVerticalResolution.ToString();
 }
 
 
@@ -123,7 +130,7 @@ Function Get-CPU()
 
 Function Get-GPU() 
 {
-    return (Get-CimInstance -Class Win32_VideoController).Name;
+    return (Get-CimInstance -Class Win32_VideoController).Name -join ', ';
 }
 
 Function Get-RAM() 
@@ -153,11 +160,11 @@ Function Get-Disks()
 
             $FreeDiskSize = (Get-CimInstance Win32_LogicalDisk)[$i].FreeSpace
             $FreeDiskSizeGB = $FreeDiskSize / 1073741824;
-            $FreeDiskSizeGB = "{0:N0}" -f $FreeDiskSizeGB;
+            $FreeDiskSizeGB = "{0:N0}" -f $FreeDiskSizeGB -replace "\D+";
 
             $DiskSize = (Get-CimInstance Win32_LogicalDisk)[$i].Size;
             $DiskSizeGB = $DiskSize / 1073741824;
-            $DiskSizeGB = "{0:N0}" -f $DiskSizeGB;
+            $DiskSizeGB = "{0:N0}" -f $DiskSizeGB -replace "\D+";
 
             $FreeDiskPercent = ($FreeDiskSizeGB / $DiskSizeGB) * 100;
             $FreeDiskPercent = "{0:N0}" -f $FreeDiskPercent;
@@ -178,11 +185,12 @@ Function Get-Disks()
 
         $FreeDiskSize = (Get-CimInstance Win32_LogicalDisk).FreeSpace
         $FreeDiskSizeGB = $FreeDiskSize / 1073741824;
-        $FreeDiskSizeGB = "{0:N0}" -f $FreeDiskSizeGB;
+        $FreeDiskSizeGB = "{0:N0}" -f $FreeDiskSizeGB -replace "\D+";
 
         $DiskSize = (Get-CimInstance Win32_LogicalDisk).Size;
         $DiskSizeGB = $DiskSize / 1073741824;
-        $DiskSizeGB = "{0:N0}" -f $DiskSizeGB;
+        $DiskSizeGB = "{0:N0}" -f $DiskSizeGB -replace "\D+";
+
 
         if ($DiskSize -gt 0) 
         {

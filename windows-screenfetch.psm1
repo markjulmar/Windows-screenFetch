@@ -32,28 +32,45 @@ Function Screenfetch($distro)
 
     for ($line = 0; $line -lt $AsciiArt.Count; $line++) 
     {
-        Write-Host $AsciiArt[$line] -f Cyan -NoNewline;
-        Write-Host $LineToTitleMappings[$line] -f Red -NoNewline;
+        Write-Host $AsciiArt[$line] -f Red -NoNewline;
 
         if ($line -eq 0) 
         {
-            Write-Host $SystemInfoCollection[$line] -f Red;
+            Write-Host $SystemInfoCollection[$line] -f Cyan;
         }
 
-        elseif ($SystemInfoCollection[$line] -like '*:*') 
+        elseif ($LineToTitleMappings.Count -gt $line)
         {
-            $Seperator = ":";
-            $Splitted = $SystemInfoCollection[$line].Split($seperator);
-
-            $Title = $Splitted[0] + $Seperator;
-            $Content = $Splitted[1];
-
-            Write-Host $Title -f Red -NoNewline;
-            Write-Host $Content;
+            Write-Host $LineToTitleMappings[$line] -f Cyan -NoNewline;
+            Write-Host $SystemInfoCollection[$line];
         }
-        else 
+
+        elseif ($SystemInfoCollection.Count -gt $line) 
         {
-            Write-Host $SystemInfoCollection[$line];            
+            if ($SystemInfoCollection[$line] -like '*:*')
+            {
+                $Separator = ":";
+                $Index = $SystemInfoCollection[$line].IndexOf($Separator)
+
+                if ($Index -ge 0) {
+                    $Title = $SystemInfoCollection[$line].Substring(0, $Index + 1) + ' '  # Includes the colon
+                    $Content = $SystemInfoCollection[$line].Substring($Index + 1).Trim()  # Everything after the colon
+
+                    Write-Host $Title -f Cyan -NoNewline
+                    Write-Host $Content
+                }
+                else {
+                    # If no colon exists, just print the line normally
+                    Write-Host $SystemInfoCollection[$line]
+                }
+            }
+            else
+            {
+                Write-Host $SystemInfoCollection[$line];            
+            }
+        }
+        else {
+            Write-Host("");
         }
     }
 }
